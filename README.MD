@@ -141,26 +141,29 @@ stow -D nvim  # Removes symlinks
 rm -rf nvim   # Removes from .dotfiles
 ```
 
-Tips
+## Tips
 
-Start small: Begin with one or two configs to get comfortable
-Use git: Keep your .dotfiles directory in version control
-Selective sync: Use --exclude to avoid syncing browser configs or cache
-Test first: Run omadot list to see what's already managed
+- **Start small:** Begin with one or two configs to get comfortable
+- **Use git:** Keep your `.dotfiles` directory in version control!
+- **Selective sync:** Use `--exclude` to avoid syncing browser configs or cache
+- **Test first:**  Run `omadot list` to see what's already managed
 
-Troubleshooting
-Stow conflicts
+## Troubleshooting
+### Stow conflicts
+
 If stow reports conflicts, you may have existing files. You can:
 
-Backup the existing files
-Remove them
-Run omadot put <package> again
+- Backup the existing files
+- Remove them
+- Run `omadot put <package>` again
 
-Package already exists
-If you see "already exists in .dotfiles", the config is already managed. Skip it or use stow -D <package> to unstow first.
-Contributing
+
+### Package already exists
+If you see `already exists in .dotfiles`, the config is already managed. Skip it or use `stow -D <package>` to unstow first.
+
+## Contributing
 
 Issues and pull requests welcome! Feel free to suggest improvements or report bugs.
 
-Credits
+## Credits
 Built with ❤️ using GNU Stow
