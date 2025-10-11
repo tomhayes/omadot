@@ -1,0 +1,309 @@
+#!/bin/bash
+
+# Configuration
+DOTFILES_DIR="$HOME/.dotfiles"
+CONFIG_DIR="$HOME/.config"
+
+# Parse arguments
+EXCLUDE_LIST=()
+HOME_FLAG=false
+
+parse_args() {
+    local args=()
+    for arg in "$@"; do
+        if [[ "$arg" == --exclude=* ]]; then
+            IFS=',' read -ra EXCLUDE_LIST <<< "${arg#*=}"
+        elif [[ "$arg" == "--home" ]]; then
+            HOME_FLAG=true
+        else
+            args+=("$arg")
+        fi
+    done
+    echo "${args[@]}"
+}
+
+is_excluded() {
+    local package="$1"
+    for excluded in "${EXCLUDE_LIST[@]}"; do
+        if [[ "$package" == "$excluded" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Check if stow is installed
+check_stow() {
+    if ! command -v stow &> /dev/null; then
+        echo "Error: GNU Stow is not installed!"
+        echo ""
+        echo "GNU Stow is required to manage dotfiles with omadot."
+        echo "Please install it using your package manager:"
+        echo ""
+        
+        # Detect package manager and show appropriate command
+        if command -v pacman &> /dev/null; then
+            echo "  sudo pacman -S stow"
+        elif command -v apt &> /dev/null; then
+            echo "  sudo apt install stow"
+        elif command -v dnf &> /dev/null; then
+            echo "  sudo dnf install stow"
+        elif command -v yum &> /dev/null; then
+            echo "  sudo yum install stow"
+        elif command -v zypper &> /dev/null; then
+            echo "  sudo zypper install stow"
+        elif command -v apk &> /dev/null; then
+            echo "  sudo apk add stow"
+        elif command -v brew &> /dev/null; then
+            echo "  brew install stow"
+        else
+            echo "  (use your system's package manager to install 'stow')"
+        fi
+        echo ""
+        exit 1
+    fi
+}
+
+# Ensure .dotfiles directory exists
+ensure_dotfiles_dir() {
+    if [[ ! -d "$DOTFILES_DIR" ]]; then
+        echo "Creating .dotfiles directory at $DOTFILES_DIR"
+        mkdir -p "$DOTFILES_DIR"
+    fi
+}
+
+# Derive package name from filename
+# .bashrc -> bashrc
+# starship.toml -> starship
+# .zshrc -> zshrc
+derive_package_name() {
+    local filename="$1"
+    local name="$filename"
+    
+    # Remove leading dot
+    name="${name#.}"
+    
+    # Remove extension if present
+    if [[ "$name" == *.* ]]; then
+        name="${name%.*}"
+    fi
+    
+    echo "$name"
+}
+
+show_help() {
+    cat << EOF
+omadot - Manage dotfiles with GNU Stow
+
+Usage:
+    omadot get <package|--all> [--home] [--exclude=pkg1,pkg2,...]
+                                  Move config to .dotfiles directory
+    omadot put <package|--all> [--exclude=pkg1,pkg2,...]
+                                  Create symlinks using stow
+    omadot list                   List all packages in .dotfiles
+    omadot help                   Show this help message
+
+Options:
+    --home                 Work with files in ~/ instead of ~/.config/
+    --exclude=pkg1,pkg2    Comma-separated list of packages to exclude
+
+Examples:
+    # .config files (default)
+    omadot get menus                          Move ~/.config/menus to .dotfiles
+    omadot get --all                          Move all ~/.config/* to .dotfiles
+    omadot get --all --exclude=vivaldi,yay    Move all except excluded
+    
+    # Home directory files
+    omadot get .bashrc --home                 Move ~/.bashrc to .dotfiles
+    omadot get starship.toml --home           Move ~/starship.toml to .dotfiles
+    omadot get --all --home                   Move all ~/.* files to .dotfiles
+    
+    # Stowing (same for both)
+    omadot put menus                          Stow menus config
+    omadot put bashrc                         Stow .bashrc
+    omadot put --all --exclude=google-chrome  Stow all except excluded
+
+Note: Already existing packages in .dotfiles are automatically skipped.
+      When using --home with a filename, package name is auto-derived:
+        .bashrc -> bashrc, starship.toml -> starship
+
+EOF
+}
+
+list_packages() {
+    echo "Packages in $DOTFILES_DIR:"
+    if [[ -d "$DOTFILES_DIR" ]]; then
+        local count=0
+        for dir in "$DOTFILES_DIR"/*; do
+            if [[ -d "$dir" ]]; then
+                echo "  - $(basename "$dir")"
+                ((count++))
+            fi
+        done
+        if [[ $count -eq 0 ]]; then
+            echo "  (none)"
+        fi
+    else
+        echo "  (none - $DOTFILES_DIR does not exist)"
+    fi
+}
+
+get_package() {
+    local package="$1"
+    
+    # Check if excluded
+    if is_excluded "$package"; then
+        echo "Skipping $package (excluded)"
+        return 0
+    fi
+    
+    if $HOME_FLAG; then
+        # Handle home directory files
+        local source_path="$HOME/$package"
+        local pkg_name=$(derive_package_name "$package")
+        local target_dir="$DOTFILES_DIR/$pkg_name"
+        local target_path="$target_dir/$package"
+        
+        # Check if already exists in .dotfiles
+        if [[ -e "$target_path" ]]; then
+            echo "Skipping $package (already exists in .dotfiles)"
+            return 0
+        fi
+        
+        # Check if source exists
+        if [[ ! -e "$source_path" ]]; then
+            echo "Warning: $source_path does not exist, skipping..."
+            return 1
+        fi
+        
+        # Create target directory and move
+        mkdir -p "$target_dir"
+        echo "Moving $source_path to $target_path"
+        mv "$source_path" "$target_path"
+    else
+        # Handle .config directory files
+        local source_path="$CONFIG_DIR/$package"
+        local target_dir="$DOTFILES_DIR/$package/.config"
+        local target_path="$target_dir/$package"
+        
+        # Check if already exists in .dotfiles
+        if [[ -e "$target_path" ]]; then
+            echo "Skipping $package (already exists in .dotfiles)"
+            return 0
+        fi
+        
+        # Check if source exists
+        if [[ ! -e "$source_path" ]]; then
+            echo "Warning: $source_path does not exist, skipping..."
+            return 1
+        fi
+        
+        # Create target directory and move
+        mkdir -p "$target_dir"
+        echo "Moving $source_path to $target_path"
+        mv "$source_path" "$target_path"
+    fi
+}
+
+put_package() {
+    local package="$1"
+    
+    # Check if excluded
+    if is_excluded "$package"; then
+        echo "Skipping $package (excluded)"
+        return 0
+    fi
+    
+    # Check if package exists in .dotfiles
+    if [[ ! -d "$DOTFILES_DIR/$package" ]]; then
+        echo "Error: Package '$package' does not exist in .dotfiles"
+        echo "Run 'omadot get $package' first"
+        return 1
+    fi
+    
+    echo "Stowing $package"
+    (cd "$DOTFILES_DIR" && stow "$package" 2>&1) || {
+        echo "Error: Failed to stow $package"
+        return 1
+    }
+}
+
+# Main command handling
+ARGS=($(parse_args "$@"))
+COMMAND="${ARGS[0]:-}"
+TARGET="${ARGS[1]:-}"
+
+case "$COMMAND" in
+    get)
+        ensure_dotfiles_dir
+        if [[ "$TARGET" == "--all" ]]; then
+            if $HOME_FLAG; then
+                # Get all dotfiles from home directory
+                echo "Moving all dotfiles from $HOME to $DOTFILES_DIR"
+                for file in "$HOME"/.[!.]*; do
+                    if [[ -e "$file" ]] && [[ ! -d "$file" || $(basename "$file") == ".config" ]]; then
+                        # Skip .config directory (handled separately)
+                        if [[ $(basename "$file") == ".config" ]]; then
+                            continue
+                        fi
+                        package=$(basename "$file")
+                        get_package "$package"
+                    fi
+                done
+            else
+                # Get all from .config
+                if [[ ! -d "$CONFIG_DIR" ]]; then
+                    echo "Error: $CONFIG_DIR does not exist"
+                    exit 1
+                fi
+                echo "Moving all configs from $CONFIG_DIR to $DOTFILES_DIR"
+                for dir in "$CONFIG_DIR"/*; do
+                    if [[ -d "$dir" ]]; then
+                        package=$(basename "$dir")
+                        get_package "$package"
+                    fi
+                done
+            fi
+        elif [[ -n "$TARGET" ]]; then
+            get_package "$TARGET"
+        else
+            echo "Error: Package name or --all required"
+            show_help
+            exit 1
+        fi
+        ;;
+    put)
+        check_stow
+        ensure_dotfiles_dir
+        if [[ "$TARGET" == "--all" ]]; then
+            if [[ ! -d "$DOTFILES_DIR" ]]; then
+                echo "Error: $DOTFILES_DIR does not exist"
+                exit 1
+            fi
+            echo "Stowing all packages from $DOTFILES_DIR"
+            for dir in "$DOTFILES_DIR"/*; do
+                if [[ -d "$dir" ]]; then
+                    package=$(basename "$dir")
+                    put_package "$package"
+                fi
+            done
+        elif [[ -n "$TARGET" ]]; then
+            put_package "$TARGET"
+        else
+            echo "Error: Package name or --all required"
+            show_help
+            exit 1
+        fi
+        ;;
+    list)
+        list_packages
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        echo "Error: Unknown command '$COMMAND'"
+        show_help
+        exit 1
+        ;;
+esac
