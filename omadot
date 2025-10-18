@@ -100,6 +100,8 @@ Usage:
                                   Move config to .dotfiles directory
     omadot put <package|--all> [--exclude=pkg1,pkg2,...]
                                   Create symlinks using stow
+    omadot restore <package|--all> [--exclude=pkg1,pkg2,...]
+                                  Restore config from .dotfiles to original location
     omadot list                   List all packages in .dotfiles
     omadot help                   Show this help message
 
@@ -122,6 +124,11 @@ Examples:
     omadot put menus                          Stow menus config
     omadot put bashrc                         Stow .bashrc
     omadot put --all --exclude=google-chrome  Stow all except excluded
+
+    # Restoring
+    omadot restore menus                      Restore menus config to ~/.config/menus
+    omadot restore bashrc                     Restore .bashrc to ~/
+    omadot restore --all                      Restore all packages
 
 Note: Already existing packages in .dotfiles are automatically skipped.
       When using --home with a filename, package name is auto-derived:
@@ -228,6 +235,69 @@ put_package() {
     }
 }
 
+restore_package() {
+    local package="$1"
+
+    # Check if excluded
+    if is_excluded "$package"; then
+        echo "Skipping $package (excluded)"
+        return 0
+    fi
+
+    # Check if package exists in .dotfiles
+    if [[ ! -d "$DOTFILES_DIR/$package" ]]; then
+        echo "Error: Package '$package' does not exist in .dotfiles"
+        return 1
+    fi
+
+    # Detect package type by checking directory structure
+    local is_config_package=false
+    if [[ -d "$DOTFILES_DIR/$package/.config" ]]; then
+        is_config_package=true
+    fi
+
+    # Determine target path based on package type
+    if $is_config_package; then
+        local target_path="$CONFIG_DIR/$package"
+    else
+        # Home package - find the actual file/dir inside package dir
+        local content=$(ls -A "$DOTFILES_DIR/$package" | head -1)
+        local target_path="$HOME/$content"
+    fi
+
+    # Check if target already exists
+    if [[ -e "$target_path" ]]; then
+        # Check if it's a symlink (stowed)
+        if [[ -L "$target_path" ]]; then
+            echo "Unstowing $package"
+            (cd "$DOTFILES_DIR" && stow -D "$package" 2>&1) || {
+                echo "Error: Failed to unstow $package"
+                return 1
+            }
+        else
+            echo "Error: $target_path already exists and is not a symlink"
+            echo "Cannot restore - would overwrite existing files"
+            return 1
+        fi
+    fi
+
+    # Move files back to original location
+    if $is_config_package; then
+        local source_path="$DOTFILES_DIR/$package/.config/$package"
+        echo "Restoring $source_path to $target_path"
+        mv "$source_path" "$target_path"
+    else
+        local content=$(ls -A "$DOTFILES_DIR/$package" | head -1)
+        local source_path="$DOTFILES_DIR/$package/$content"
+        echo "Restoring $source_path to $target_path"
+        mv "$source_path" "$target_path"
+    fi
+
+    # Remove empty package directory
+    rm -rf "$DOTFILES_DIR/$package"
+    echo "Removed $package from .dotfiles"
+}
+
 # Main command handling
 ARGS=($(parse_args "$@"))
 COMMAND="${ARGS[0]:-}"
@@ -289,6 +359,27 @@ case "$COMMAND" in
             done
         elif [[ -n "$TARGET" ]]; then
             put_package "$TARGET"
+        else
+            echo "Error: Package name or --all required"
+            show_help
+            exit 1
+        fi
+        ;;
+    restore)
+        if [[ "$TARGET" == "--all" ]]; then
+            if [[ ! -d "$DOTFILES_DIR" ]]; then
+                echo "Error: $DOTFILES_DIR does not exist"
+                exit 1
+            fi
+            echo "Restoring all packages from $DOTFILES_DIR"
+            for dir in "$DOTFILES_DIR"/*; do
+                if [[ -d "$dir" ]]; then
+                    package=$(basename "$dir")
+                    restore_package "$package"
+                fi
+            done
+        elif [[ -n "$TARGET" ]]; then
+            restore_package "$TARGET"
         else
             echo "Error: Package name or --all required"
             show_help
