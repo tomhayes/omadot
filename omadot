@@ -9,7 +9,7 @@ EXCLUDE_LIST=()
 HOME_FLAG=false
 
 parse_args() {
-    local args=()
+    args=()
     for arg in "$@"; do
         if [[ "$arg" == --exclude=* ]]; then
             IFS=',' read -ra EXCLUDE_LIST <<< "${arg#*=}"
@@ -19,7 +19,6 @@ parse_args() {
             args+=("$arg")
         fi
     done
-    echo "${args[@]}"
 }
 
 is_excluded() {
@@ -229,7 +228,8 @@ put_package() {
 }
 
 # Main command handling
-ARGS=($(parse_args "$@"))
+parse_args "$@"
+ARGS=("${args[@]}")
 COMMAND="${ARGS[0]:-}"
 TARGET="${ARGS[1]:-}"
 
